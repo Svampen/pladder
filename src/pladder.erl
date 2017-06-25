@@ -378,7 +378,7 @@ get_entry(#ladder_entry{id=Id}) ->
 round_exp(ExpPerHour) ->
     if
         ExpPerHour < 1000000 ->
-            lists:concat([ExpPerHour / 1000, "K XPH"]);
+            lists:concat([trunc(ExpPerHour / 1000), "K XPH"]);
         true ->
-            lists:concat([ExpPerHour / 1000000, "M XPH"])
+            lists:concat([trunc(ExpPerHour / 1000000), "M XPH"])
     end.
