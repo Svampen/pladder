@@ -13,7 +13,8 @@
 -export([start_link/0,
          get_by_char_name/1,
          get_by_acc_name/1,
-         get_by_char_class/1]).
+         get_by_char_class/1,
+         get_stats/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -78,6 +79,32 @@ get_by_char_class(ClassName) ->
                           #ladder_entry.character_class)
         end,
     mnesia:transaction(F).
+
+get_stats() ->
+    F = fun() ->
+        mnesia:foldl(
+            fun(#ladder_entry{dead=IsDead, online=IsOnline},
+                #ladder_stats{dead=Dead, alive=Alive, online=Online}) ->
+                case {IsDead, IsOnline} of
+                    {true, true} ->
+                        #ladder_stats{dead=Dead+1, alive=Alive,
+                                      online=Online+1};
+                    {true, false} ->
+                        #ladder_stats{dead=Dead+1, alive=Alive,
+                                      online=Online};
+                    {false, true} ->
+                        #ladder_stats{dead=Dead, alive=Alive+1,
+                                      online=Online+1};
+                    {false, false} ->
+                        #ladder_stats{dead=Dead+1, alive=Alive,
+                                      online=Online}
+                end
+            end,
+            #ladder_stats{},
+            ladder_entry)
+        end,
+    mnesia:transaction(F).
+
 
 %%%===================================================================
 %%% gen_server callbacks

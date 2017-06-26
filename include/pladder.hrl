@@ -40,3 +40,9 @@
     last_update :: calendar:datetime(),
     exp_per_hour :: string()
 }).
+
+-record(ladder_stats, {
+    dead = 0   :: integer(),
+    alive = 0  :: integer(),
+    online = 0 :: integer()
+}).
