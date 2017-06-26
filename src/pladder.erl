@@ -12,7 +12,8 @@
 %% API
 -export([start_link/0,
          get_by_char_name/1,
-         get_by_acc_name/1]).
+         get_by_acc_name/1,
+         get_by_char_class/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -68,6 +69,14 @@ get_by_acc_name(AccountName) ->
     F = fun() ->
         mnesia:index_read(ladder_entry, AccountNameLowerCase,
                           #ladder_entry.account_name_lower_case)
+        end,
+    mnesia:transaction(F).
+
+get_by_char_class(ClassName) ->
+    ClassNameLowerCase = string:to_lower(ClassName),
+    F = fun() ->
+        mnesia:index_read(ladder_entry, ClassNameLowerCase,
+                          #ladder_entry.character_class)
         end,
     mnesia:transaction(F).
 
@@ -193,12 +202,12 @@ handle_info({gun_down, _ConnPid, _Protocol, _Reason,
     io:format("test~n", []),
     {noreply, State};
 
-handle_info({gun_response, RestPid, _StreamRef, nofin, Status, Headers},
+handle_info({gun_response, RestPid, _StreamRef, nofin, _Status, _Headers},
             #state{rest_pid=RestPid}=State) ->
     %%io:format("Received no end response with status(~p) and headers:~p~n",
     %%          [Status, Headers]),
     {noreply, State};
-handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
+handle_info({gun_response, RestPid, _StreamRef, fin, _Status, _Headers},
             #state{rest_pid=RestPid}=State) ->
     %%io:format("Received end response with status(~p) and headers:~p~n",
     %%          [Status, Headers]),
