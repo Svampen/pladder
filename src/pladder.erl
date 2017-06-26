@@ -73,9 +73,8 @@ get_by_acc_name(AccountName) ->
     mnesia:transaction(F).
 
 get_by_char_class(ClassName) ->
-    ClassNameLowerCase = string:to_lower(ClassName),
     F = fun() ->
-        mnesia:index_read(ladder_entry, ClassNameLowerCase,
+        mnesia:index_read(ladder_entry, ClassName,
                           #ladder_entry.character_class)
         end,
     mnesia:transaction(F).
