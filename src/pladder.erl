@@ -38,7 +38,7 @@
 -define(Ladders, "/ladders").
 -define(RestPort, 80).
 -define(Limit, 200).
--define(StartUpdateTimer, 10000).
+-define(StartUpdateTimer, 60000).
 
 %%%===================================================================
 %%% API
