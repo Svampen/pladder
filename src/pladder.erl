@@ -228,15 +228,15 @@ handle_info({gun_down, _ConnPid, _Protocol, _Reason,
     io:format("test~n", []),
     {noreply, State};
 
-handle_info({gun_response, RestPid, _StreamRef, nofin, _Status, _Headers},
+handle_info({gun_response, RestPid, _StreamRef, nofin, Status, Headers},
             #state{rest_pid=RestPid}=State) ->
-    %%io:format("Received no end response with status(~p) and headers:~p~n",
-    %%          [Status, Headers]),
+    io:format("Received no end response with status(~p) and headers:~p~n",
+              [Status, Headers]),
     {noreply, State};
-handle_info({gun_response, RestPid, _StreamRef, fin, _Status, _Headers},
+handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
             #state{rest_pid=RestPid}=State) ->
-    %%io:format("Received end response with status(~p) and headers:~p~n",
-    %%          [Status, Headers]),
+    io:format("Received end response with status(~p) and headers:~p~n",
+              [Status, Headers]),
     {noreply, State};
 handle_info({gun_response, _ConnPid, _StreamRef,
              _IsFin, _Status, _Headers}=_Msg,
@@ -253,7 +253,6 @@ handle_info({gun_data, RestPid, StreamRef, nofin, Data},
 handle_info({gun_data, RestPid, StreamRef, fin, Data},
             #state{rest_pid=RestPid, stream_ref=StreamRef,
                 temp_data=TempData, offset=Offset, ladder=Ladder}=State) ->
-    %%io:format("Received data:~p~n", [Data]),
     UpdatedTempData = <<TempData/binary, Data/binary>>,
     DecodedData = jiffy:decode(UpdatedTempData, [return_maps]),
     Total = update_ladder(DecodedData),
