@@ -233,10 +233,16 @@ handle_info({gun_down, _ConnPid, _Protocol, _Reason,
     io:format("test~n", []),
     {noreply, State};
 
+handle_info({gun_response, RestPid, _StreamRef, nofin, 200, _Headers},
+            #state{rest_pid=RestPid}=State) ->
+    {noreply, State};
 handle_info({gun_response, RestPid, _StreamRef, nofin, Status, Headers},
             #state{rest_pid=RestPid}=State) ->
     io:format("Received no end response with status(~p) and headers:~p~n",
               [Status, Headers]),
+    {noreply, State};
+handle_info({gun_response, RestPid, _StreamRef, fin, 200, _Headers},
+            #state{rest_pid=RestPid}=State) ->
     {noreply, State};
 handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
             #state{rest_pid=RestPid}=State) ->
