@@ -14,7 +14,8 @@
          get_by_char_name/1,
          get_by_acc_name/1,
          get_by_char_class/1,
-         get_stats/0]).
+         get_stats/0,
+         update_entry_online_status/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -136,6 +137,8 @@ init([]) ->
                                        account_name_lower_case,
                                        rank, character_class]}]) of
         {aborted, {already_exists, ladder_entry}} ->
+            update_entry_online_status(),
+            timer:send_after(1200 * 1000, {update_online_status}),
             {ok, RestPid} = gun:open(?RestURL, ?RestPort, #{protocols=>[http]}),
             Offset = 0,
             Ladder = "2 Week Mayhem HC Solo (JRE093)",
@@ -150,6 +153,8 @@ init([]) ->
                       [Reason]),
             {stop, Reason};
         _ ->
+            update_entry_online_status(),
+            timer:send_after(1200 * 1000, {update_online_status}),
             {ok, RestPid} = gun:open(?RestURL, ?RestPort, #{protocols=>[http]}),
             Offset = 0,
             Ladder = "2 Week Mayhem HC Solo (JRE093)",
@@ -279,6 +284,11 @@ handle_info({start_update}, #state{ladder=Ladder, offset=Offset,
     StreamRef = gun:get(RestPid, Path),
     TempData = <<>>,
     {noreply, State#state{stream_ref=StreamRef, temp_data=TempData}};
+
+handle_info({update_online_status}, State) ->
+    update_entry_online_status(),
+    timer:send_after(1200 * 1000, {update_online_status}),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     io:format("test~n", []),
@@ -416,3 +426,26 @@ round_exp(ExpPerHour) ->
         true ->
             lists:concat([trunc(ExpPerHour / 1000000), "M XPH"])
     end.
+
+update_entry_online_status() ->
+    F = fun() ->
+        mnesia:foldl(
+            fun(#ladder_entry{online=true, last_update=LastUpdate}=LadderEntry,
+                ignore) ->
+                Now = calendar:local_time(),
+                NowSeconds = calendar:datetime_to_gregorian_seconds(Now),
+                LastUpdateSeconds =
+                calendar:datetime_to_gregorian_seconds(LastUpdate),
+                UpdatedDiffSeconds = NowSeconds - LastUpdateSeconds,
+                if
+                    UpdatedDiffSeconds > 600 ->
+                        mnesia:write(LadderEntry#ladder_entry{online=false});
+                    true ->
+                        ok
+                end,
+                ignore
+            end,
+            ignore,
+            ladder_entry)
+        end,
+    mnesia:transaction(F).
