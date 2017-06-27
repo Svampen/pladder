@@ -96,7 +96,7 @@ get_stats() ->
                         #ladder_stats{dead=Dead, alive=Alive+1,
                                       online=Online+1};
                     {false, false} ->
-                        #ladder_stats{dead=Dead+1, alive=Alive,
+                        #ladder_stats{dead=Dead, alive=Alive+1,
                                       online=Online}
                 end
             end,
