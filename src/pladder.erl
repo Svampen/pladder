@@ -249,10 +249,12 @@ handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
     io:format("Received end response with status(~p) and headers:~p~n",
               [Status, Headers]),
     {noreply, State};
-handle_info({gun_response, _ConnPid, _StreamRef,
-             _IsFin, _Status, _Headers}=_Msg,
+handle_info({gun_response, ConnPid, _StreamRef,
+             IsFin, Status, Headers}=_Msg,
             #state{}=State) ->
-    io:format("test~n", []),
+    io:format("Unhandled gun_response recieved for pid:~p finish state:~p "
+              "and status(~p) and headers:~n~p~n",
+              [ConnPid, IsFin, Status, Headers]),
     {noreply, State};
 
 handle_info({gun_data, RestPid, StreamRef, nofin, Data},
@@ -280,8 +282,9 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
             {noreply, State#state{offset=NewOffset, stream_ref=NewStreamRef,
                                   temp_data=NewTempData}}
     end;
-handle_info({gun_data, _ConnPid, _StreamRef, _IsFin, _Data}=_Msg, State) ->
-    io:format("test~n", []),
+handle_info({gun_data, ConnPid, _StreamRef, IsFin, Data}=_Msg, State) ->
+    io:format("Unhandled gun_data recieved for pid:~p finish state:~p "
+              "and data:~n~p~n", [ConnPid, IsFin, Data]),
     {noreply, State};
 
 handle_info({start_update}, #state{ladder=Ladder, offset=Offset,
@@ -296,8 +299,8 @@ handle_info({update_online_status}, State) ->
     timer:send_after(1200 * 1000, {update_online_status}),
     {noreply, State};
 
-handle_info(_Info, State) ->
-    io:format("test~n", []),
+handle_info(Info, State) ->
+    io:format("Unhandled info msg received:~p~n", [Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
