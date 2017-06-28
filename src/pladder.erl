@@ -287,6 +287,16 @@ handle_info({gun_data, ConnPid, _StreamRef, IsFin, Data}=_Msg, State) ->
               "and data:~n~p~n", [ConnPid, IsFin, Data]),
     {noreply, State};
 
+handle_info({gun_error, RestPid, StreamRef, {closed, Reason}},
+            #state{rest_pid=RestPid, stream_ref=StreamRef,
+                   offset=Offset}=State) ->
+    io:format("Connection closed for streamref:~p with reason:~p~n",
+              [StreamRef, Reason]),
+    NewTempData = <<>>,
+    timer:send_after(?StartUpdateTimer, {start_update}),
+    {noreply, State#state{offset=Offset, stream_ref=undefined,
+                          temp_data=NewTempData}};
+
 handle_info({start_update}, #state{ladder=Ladder, offset=Offset,
                                    rest_pid=RestPid}=State) ->
     Path = build_path(Ladder, ?Limit, Offset),
