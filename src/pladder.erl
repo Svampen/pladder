@@ -267,21 +267,30 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
             #state{rest_pid=RestPid, stream_ref=StreamRef,
                 temp_data=TempData, offset=Offset, ladder=Ladder}=State) ->
     UpdatedTempData = <<TempData/binary, Data/binary>>,
-    DecodedData = jiffy:decode(UpdatedTempData, [return_maps]),
-    Total = update_ladder(DecodedData),
-    NewOffset = update_offset(Offset, Total),
     NewTempData = <<>>,
-    if
-        NewOffset == 0 ->
+    try
+        DecodedData = jiffy:decode(UpdatedTempData, [return_maps]),
+        Total = update_ladder(DecodedData),
+        NewOffset = update_offset(Offset, Total),
+        if
+            NewOffset == 0 ->
+                timer:send_after(?StartUpdateTimer, {start_update}),
+                {noreply, State#state{offset=NewOffset, stream_ref=undefined,
+                                      temp_data=NewTempData}};
+            true ->
+                Path = build_path(Ladder, ?Limit, NewOffset),
+                NewStreamRef = gun:get(RestPid, Path),
+                {noreply, State#state{offset=NewOffset, stream_ref=NewStreamRef,
+                                      temp_data=NewTempData}}
+        end
+    catch %% Most likely POE servers are down
+        _:_  ->
+            io:format("Json data was undecodable, retrying later", []),
             timer:send_after(?StartUpdateTimer, {start_update}),
-            {noreply, State#state{offset=NewOffset, stream_ref=undefined,
-                temp_data=NewTempData}};
-        true ->
-            Path = build_path(Ladder, ?Limit, NewOffset),
-            NewStreamRef = gun:get(RestPid, Path),
-            {noreply, State#state{offset=NewOffset, stream_ref=NewStreamRef,
+            {noreply, State#state{offset=0, stream_ref=undefined,
                                   temp_data=NewTempData}}
     end;
+
 handle_info({gun_data, ConnPid, _StreamRef, IsFin, Data}=_Msg, State) ->
     io:format("Unhandled gun_data recieved for pid:~p finish state:~p "
               "and data:~n~p~n", [ConnPid, IsFin, Data]),
