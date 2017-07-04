@@ -279,6 +279,7 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
                                       temp_data=NewTempData}};
             true ->
                 Path = build_path(Ladder, ?Limit, NewOffset),
+                lager:info("Get ~p~n", [Path]),
                 NewStreamRef = gun:get(RestPid, Path),
                 {noreply, State#state{offset=NewOffset, stream_ref=NewStreamRef,
                                       temp_data=NewTempData}}
