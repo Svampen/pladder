@@ -130,15 +130,16 @@ build_path(Ladder, Limit, Offset) ->
                   "&", "offset=", Offset, "&track=true"]).
 update_ladder(#{<<"total">> := Total, <<"entries">> := _Entries}, Ladder,
               0) ->
-    lager:warning("0 available workers for ~p to update entries~n", [Ladder]),
+    lager:warning("[~p] 0 available workers for ~p to update entries~n",
+                  [?MODULE, Ladder]),
     Total;
 update_ladder(#{<<"total">> := Total, <<"entries">> := Entries}, Ladder,
               Workers) ->
     request_entry_updates(Entries, Ladder, Workers),
     Total;
 update_ladder(LadderEntries, Ladder, _Workers) ->
-    lager:error("Ladder entries for ~p didn't match function clause:~p~n",
-                [Ladder, LadderEntries]),
+    lager:error("[~p] Ladder entries for ~p didn't match function clause:~p~n",
+                [?MODULE, Ladder, LadderEntries]),
     0.
 
 request_entry_updates([], _Ladder, _Workers) ->
@@ -166,8 +167,9 @@ wait_for_entry_updates(UpdatesLeft) ->
             wait_for_entry_updates(UpdatesLeft - 1)
     after
         30000 ->
-            lager:warning("Timedout while waiting for entry "
-                          "updates with ~p updates left~n", [UpdatesLeft]),
+            lager:warning("[~p] Timedout while waiting for entry "
+                          "updates with ~p updates left~n",
+                          [?MODULE, UpdatesLeft]),
             ok
     end.
 

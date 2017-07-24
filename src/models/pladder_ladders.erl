@@ -68,7 +68,6 @@ to_json(Ladder) ->
 
 -spec from_json(sumo_rest_doc:json()) -> {ok, ladder()} | {error, iodata()}.
 from_json(Json) ->
-    io:format("from json:~p~n", [Json]),
     try
         {ok, #{
             id => maps:get(<<"id">>, Json),
@@ -83,8 +82,6 @@ from_json(Json) ->
 -spec update(ladder(), sumo_rest_doc:json()) ->
     {ok, ladder()} | {error, iodata()}.
 update(Ladder, Json) ->
-    io:format("Ladder:~p~n", [Ladder]),
-    io:format("Json:~p~n", [Json]),
     try
         UpdatedLadder =
         case {maps:is_key(<<"type">>, Json), maps:is_key(<<"active">>, Json)} of

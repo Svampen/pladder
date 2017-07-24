@@ -111,11 +111,12 @@ get_special_fields(Conditions, Acc) ->
         {ok, qs_fields(Conditions, Acc)}
     catch
         _:{error, Error} when is_map(Error) ->
-            lager:error("Exception catch in get_special_fields:~p~n", [Error]),
+            lager:error("[~p] Exception catch in get_special_fields:~p~n",
+                        [?MODULE, Error]),
             {error, Error};
         _:Exception ->
-            lager:error("Exception catch in get_special_fields:~p~n",
-                        [Exception]),
+            lager:error("[~p] Exception catch in get_special_fields:~p~n",
+                        [?MODULE, Exception]),
             {error, #{type => internal_server_error,
                       reason => <<"see server error log">>,
                       action => error_reply}}
@@ -159,8 +160,8 @@ qs_fields([{character_id, Value}|Rest], ValidConditions) ->
         qs_fields(Rest, ValidConditions ++ [{id, 'like', Id}])
     catch
         _:Exception ->
-            lager:error("Exception in qs_fields for character_id: ~p~n",
-                        [Exception]),
+            lager:error("[~p] Exception in qs_fields for character_id: ~p~n",
+                        [?MODULE, Exception]),
             Error = <<"Concatination error with "
                       "bitstring in qs_fields for character_id">>,
             throw({error, #{type => no_results,
@@ -178,10 +179,12 @@ adv_filter(Json, Fields) ->
         {ok, decode_cls(CLSMap, Fields)}
     catch
         _:{error, #{reason := Reason}=Error} ->
-            lager:error("Exception catch in adv_filter:~p~n", [Reason]),
+            lager:error("[~p] Exception catch in adv_filter:~p~n",
+                        [?MODULE, Reason]),
             {error, Error};
         _:Exception ->
-            lager:error("Exception catch in adv_filter:~p~n", [Exception]),
+            lager:error("[~p] Exception catch in adv_filter:~p~n",
+                        [?MODULE, Exception]),
             {error, #{type => internal_server_error,
                       reason => <<"see server error log">>,
                       action => error_reply}}
@@ -200,7 +203,7 @@ decode_cls(#{<<"not">> := Expression}, Fields)
     [E] = decode_cls([Expression], [], Fields),
     {'not', E};
 decode_cls(CLS, _Fields) ->
-    lager:error("Unsupported CLS to decode:~p~n", [CLS]),
+    lager:error("[~p] Unsupported CLS to decode:~p~n", [?MODULE, CLS]),
     throw({error, #{type => internal_server_error,
                     reason => <<"Unsupported CLS to decode">>,
                     action => return_no_results}}).
@@ -251,7 +254,7 @@ decode_cls([#{<<"or">> := _}=E|Rest], Acc, Fields) ->
 decode_cls([#{<<"not">> := _}=E|Rest], Acc, Fields) ->
     decode_cls(Rest, Acc ++ [decode_cls(E, Fields)]);
 decode_cls([CLS|_Rest], _Acc, _Fields) ->
-    lager:error("Unsupported CLS to decode:~p~n", [CLS]),
+    lager:error("[~p] Unsupported CLS to decode:~p~n", [?MODULE, CLS]),
     throw({error, #{type => internal_server_error,
                     reason => <<"Unsupported CLS to decode">>,
                     action => return_no_results}}).

@@ -106,14 +106,13 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_cast({update_entry, Entry, Ladder, ReplyTo}, State) ->
-    %%{Time, _Value} = timer:tc(pladder_util, update_entry, [[Entry], Ladder]),
-    %%lager:debug("Update entry: ~pms~n", [Time/1000]),
     try
         pladder_util:update_entry([Entry], Ladder),
         ReplyTo ! {entry_updated}
     catch
         _:Exception ->
-            lager:error("Exception caught in update worker:~p~n", [Exception]),
+            lager:error("[~p] Exception caught in update worker:~p~n",
+                        [?SERVER, Exception]),
             ReplyTo ! {entry_failed}
     end,
     {noreply, State};

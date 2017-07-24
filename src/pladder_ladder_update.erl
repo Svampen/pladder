@@ -132,7 +132,7 @@ handle_cast({update_ladder, Ladder},
                    rest_pid=RestPid}=State) ->
     Path = pladder_util:build_path(Ladder, ?Limit, Offset),
     lager:debug("Rest call for more entries for ~p with path ~p~n",
-               [Ladder, Path]),
+                [Ladder, Path]),
     StreamRef = gun:get(RestPid, Path),
     TempData = <<>>,
     Now = calendar:now_to_datetime(erlang:timestamp()),
@@ -140,10 +140,10 @@ handle_cast({update_ladder, Ladder},
                           temp_data=TempData, last_rest_call=Now}};
 handle_cast({update_ladder, Ladder},
             #state{ladder=Ladder, offset=Offset,
-                rest_pid=RestPid, last_rest_call=undefined}=State) ->
+                   rest_pid=RestPid, last_rest_call=undefined}=State) ->
     Path = pladder_util:build_path(Ladder, ?Limit, Offset),
     lager:debug("Rest call for more entries for ~p with path ~p~n",
-               [Ladder, Path]),
+                [Ladder, Path]),
     StreamRef = gun:get(RestPid, Path),
     TempData = <<>>,
     Now = calendar:now_to_datetime(erlang:timestamp()),
@@ -160,29 +160,31 @@ handle_cast({update_ladder, Ladder},
         NowSec - LastSec
     catch
         _:Exception ->
-            lager:error("Exception caught(~p) in handle_cast update_ladder"
-                        " for ~p~n", [Exception, Ladder]),
+            lager:error("[~p] Exception caught(~p) in handle_cast update_ladder"
+                        " for ~p~n", [?SERVER(Ladder), Exception, Ladder]),
             0
     end,
     if
         Diff > 60 ->
-            lager:warning("Last rest call for ~p was ~p seconds ago, "
-                          "resting offset and updating~n", [Ladder, Diff]),
+            lager:warning("[~p] Last rest call for ~p was ~p seconds ago, "
+                          "resting offset and updating~n",
+                          [?SERVER(Ladder), Ladder, Diff]),
             Path = pladder_util:build_path(Ladder, ?Limit, Offset),
             lager:debug("Rest call for more entries for ~p with path ~p~n",
-                       [Ladder, Path]),
+                        [Ladder, Path]),
             StreamRef = gun:get(RestPid, Path),
             TempData = <<>>,
             {noreply, State#state{offset=Offset, stream_ref=StreamRef,
                                   temp_data=TempData, last_rest_call=Now}};
         true ->
-            lager:warning("Last rest call for ~p was ~p seconds ago, "
-                          "skipping this update cycle~n", [Ladder, Diff]),
+            lager:warning("[~p] Last rest call for ~p was ~p seconds ago, "
+                          "skipping this update cycle~n",
+                          [?SERVER(Ladder), Ladder, Diff]),
             {noreply, State}
     end;
 handle_cast({update_ladder, Ladder}, #state{}=State) ->
-         lager:error("Trying to update ~p which isn't in this state:~p~n",
-                     [Ladder, State]),
+    lager:error("[~p] Trying to update ~p which isn't in this state:~p~n",
+                [?SERVER(Ladder), Ladder, State]),
     {noreply, State};
 handle_cast(_Request, State) ->
     {noreply, State}.
@@ -217,18 +219,18 @@ handle_info({gun_response, RestPid, _StreamRef, nofin, 200, _Headers},
     {noreply, State};
 handle_info({gun_response, RestPid, _StreamRef, nofin, Status, Headers},
             #state{rest_pid=RestPid, ladder=Ladder}=State) ->
-    lager:error("Received no end response for ~p with status(~p) "
+    lager:error("[~p] Received no end response for ~p with status(~p) "
                 "and headers:~p~n",
-                [Ladder, Status, Headers]),
+                [?SERVER(Ladder), Ladder, Status, Headers]),
     {noreply, State};
 handle_info({gun_response, RestPid, _StreamRef, fin, 200, _Headers},
             #state{rest_pid=RestPid}=State) ->
     {noreply, State};
 handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
             #state{rest_pid=RestPid, ladder=Ladder}=State) ->
-    lager:error("Received end response for ~p with status(~p) "
+    lager:error("[~p] Received end response for ~p with status(~p) "
                 "and headers:~p~n",
-                [Ladder, Status, Headers]),
+                [?SERVER(Ladder), Ladder, Status, Headers]),
     {noreply, State};
 
 handle_info({gun_data, RestPid, StreamRef, nofin, Data},
@@ -238,8 +240,8 @@ handle_info({gun_data, RestPid, StreamRef, nofin, Data},
     {noreply, State#state{temp_data=UpdatedTempData}};
 handle_info({gun_data, RestPid, StreamRef, nofin, _Data},
             #state{rest_pid=RestPid, ladder=Ladder}=State) ->
-    lager:error("No streamref(~p) found for current ladder:~p~n",
-                [StreamRef, Ladder]),
+    lager:error("[~p] No streamref(~p) found for current ladder:~p~n",
+                [?SERVER(Ladder), StreamRef, Ladder]),
     {noreply, State};
 handle_info({gun_data, RestPid, StreamRef, fin, Data},
             #state{rest_pid=RestPid, ladder=Ladder, stream_ref=StreamRef,
@@ -248,9 +250,7 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
     UpdatedTempData = <<TempData/binary, Data/binary>>,
     try
         DecodedData = jiffy:decode(UpdatedTempData, [return_maps]),
-        %%lager:info("Updating ~p for ~p offset~n", [Ladder, Offset]),
         Total = pladder_util:update_ladder(DecodedData, Ladder, Workers),
-        %%lager:info("~p updated for ~p offset~n", [Ladder, Offset]),
         NewOffset = pladder_util:update_offset(Offset, Total),
         if
             NewOffset == 0 ->
@@ -262,7 +262,7 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
             true ->
                 Path = pladder_util:build_path(Ladder, ?Limit, NewOffset),
                 lager:debug("Rest call for more entries for ~p with path ~p~n",
-                           [Ladder, Path]),
+                            [Ladder, Path]),
                 NewStreamRef = gun:get(RestPid, Path),
                 Now = calendar:now_to_datetime(erlang:timestamp()),
                 {noreply, State#state{stream_ref=NewStreamRef, offset=NewOffset,
@@ -271,9 +271,11 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
         end
     catch %% Most likely POE servers are down
         _:Exception  ->
-            lager:error("Exception thrown:~p~n", [Exception]),
-            lager:warning("Resting offset to 0 as Exception occured "
-                          "at receiving rest data for ~p~n", [Ladder]),
+            lager:error("[~p] Exception thrown:~p~n",
+                        [?SERVER(Ladder), Exception]),
+            lager:warning("[~p] Resting offset to 0 as Exception occured "
+                          "at receiving rest data for ~p~n",
+                          [?SERVER(Ladder), Ladder]),
             {noreply, State#state{stream_ref=undefined, offset=0,
                                   temp_data=NewTempData,
                                   last_rest_call=undefined}}
@@ -282,31 +284,32 @@ handle_info({gun_data, RestPid, StreamRef, fin, Data},
 
 handle_info({gun_data, ConnPid, _StreamRef, IsFin, Data}=_Msg,
             #state{ladder=Ladder}=State) ->
-    lager:error("Unhandled gun_data for ~p recieved for pid:~p finish state:~p "
-                "and data:~n~p~n", [Ladder, ConnPid, IsFin, Data]),
+    lager:error("[~p] Unhandled gun_data for ~p recieved for pid:~p finish state:~p "
+                "and data:~n~p~n", [?SERVER(Ladder), Ladder, ConnPid, IsFin, Data]),
     {noreply, State};
 
 handle_info({gun_error, RestPid, StreamRef, {closed, Reason}},
             #state{rest_pid=RestPid, ladder=Ladder, offset=Offset,
                    stream_ref=StreamRef}=State) ->
-    lager:error("Connection closed for streamref:~p "
+    lager:error("[~p] Connection closed for streamref:~p "
                 "belonging to ~p at ~p offset with reason:~p~n",
-                [StreamRef, Ladder, Offset, Reason]),
-    lager:warning("Current update cycle for ~p canceled, waiting on next~n",
-                  [Ladder]),
+                [?SERVER(Ladder), StreamRef, Ladder, Offset, Reason]),
+    lager:warning("[~p] Current update cycle for ~p canceled, waiting on next~n",
+                  [?SERVER(Ladder), Ladder]),
     NewTempData = <<>>,
     {noreply, State#state{temp_data=NewTempData, offset=0,
                           last_rest_call=undefined,
                           stream_ref=undefined}};
 handle_info({gun_error, RestPid, StreamRef, {closed, Reason}},
             #state{rest_pid=RestPid, ladder=Ladder}=State) ->
-    lager:error("Connection closed for unknown streamref:~p "
-                 "belonging to ~p with reason:~p~n",
-                 [StreamRef, Ladder, Reason]),
+    lager:error("[~p] Connection closed for unknown streamref:~p "
+                "belonging to ~p with reason:~p~n",
+                [?SERVER(Ladder), StreamRef, Ladder, Reason]),
     {noreply, State};
 
 handle_info(Info, #state{ladder=Ladder}=State) ->
-    lager:error("Unhandled info for ~p received:~p~n", [Ladder, Info]),
+    lager:error("[~p] Unhandled info for ~p received:~p~n",
+                [?SERVER(Ladder), Ladder, Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -323,15 +326,15 @@ handle_info(Info, #state{ladder=Ladder}=State) ->
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
                 State :: #state{}) -> term()).
 terminate(Reason, #state{ladder=Ladder, rest_pid=RestPid,
-                          timer_ref=Tref, stream_ref=StreamRef}) ->
+                         timer_ref=Tref, stream_ref=StreamRef}) ->
     timer:cancel(Tref),
     case StreamRef of
         undefined -> ok;
         StreamRef -> gun:cancel(RestPid, StreamRef)
     end,
     gun:close(RestPid),
-    lager:warning("Shuting down ~p for ~p with reason:~p~n",
-                  [?MODULE, Ladder, Reason]),
+    lager:warning("[~p] Shuting down for ~p with reason:~p~n",
+                  [?SERVER(Ladder), Ladder, Reason]),
     ok.
 
 %%--------------------------------------------------------------------

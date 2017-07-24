@@ -108,7 +108,6 @@ handle_get(Req, State) ->
     Module = sr_state:module(State),
     {Qs, Req1} = cowboy_req:qs_vals(Req),
     {ok, Body, _} = cowboy_req:body(Req1),
-    io:format("JsonBody:~p~n", [Body]),
     Conditions = [ {binary_to_atom(Name, unicode),
                     Value} || {Name, Value} <- Qs ],
     MaxPageSize = pladder_handler_utils:page_size(Conditions, ?MaxPageSize,
@@ -119,7 +118,6 @@ handle_get(Req, State) ->
     Reply =
     case pladder_handler_utils:validate_conditions(Conditions, Body, Model) of
         {ok, ValidConditions} ->
-            io:format("Final conditions:~p~n", [ValidConditions]),
             Entities = sumo:find_by(Model, ValidConditions, Sort,
                                     MaxPageSize, (Page - 1) * MaxPageSize),
             JsonEntities = [Module:to_json(Entity) || Entity <- Entities],
@@ -154,7 +152,8 @@ handle_get(Req, State) ->
               page_info => PageInfo};
         {error, #{type := Type, reason := Reason, action := Action}} ->
             PageInfo = pladder_handler_utils:page_info(0, 0, 0, 0),
-            lager:error("Received unknown error action:~p~n", [Action]),
+            lager:error("[~p] Received unknown error action:~p~n",
+                        [?MODULE, Action]),
             #{entties => [], error => #{type => Type, reason => Reason},
               page_info => PageInfo}
     end,

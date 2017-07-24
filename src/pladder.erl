@@ -80,9 +80,9 @@ clean_ladders() ->
 init([]) ->
     Workers = application:get_env(pladder, workers, 100),
     init_ladders(Workers),
-    {ok, CheckOnLaddersTref} =timer:apply_interval(?CheckOnLaddersTimer,
-                                                   ?MODULE,
-                                                   check_on_ladders, []),
+    {ok, CheckOnLaddersTref} = timer:apply_interval(?CheckOnLaddersTimer,
+                                                    ?MODULE,
+                                                    check_on_ladders, []),
     {ok, CleanLaddersTref} = timer:apply_interval(?CleanLaddersTimer, ?MODULE,
                                                   clean_ladders, []),
     {ok, #state{check_on_ladders_timer=CheckOnLaddersTref,
@@ -157,7 +157,7 @@ handle_cast(_Request, State) ->
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
 handle_info(Info, State) ->
-    io:format("Unhandled info msg received:~p~n", [Info]),
+    lager:error("[~p] Unhandled info msg received:~p~n", [?SERVER, Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -175,7 +175,7 @@ handle_info(Info, State) ->
                 State :: #state{}) -> term()).
 terminate(Reason, #state{check_on_ladders_timer=CheckOnLaddersTimer,
                           clean_ladders_timer=CleanLaddersTimer}) ->
-    lager:warning("Shuting down ~p with reason:~p~n", [?SERVER, Reason]),
+    lager:warning("[~p] Shuting down with reason:~p~n", [?SERVER, Reason]),
     Ladders = get_update_ladders(),
     stop_ladders(Ladders, Ladders),
     timer:cancel(CheckOnLaddersTimer),
@@ -203,7 +203,7 @@ init_ladders(Workers) ->
     ActiveLadders = sumo:find_by(ladders, [{active, 1}]),
     Ladders = [ sumo_utils:to_list(Id) || #{id := Id} <- ActiveLadders],
     WorkersPerLadder = workers_per_ladder(Workers, length(Ladders)),
-    lager:info("Initating ladders:~p~n", [Ladders]),
+    lager:info("[~p] Initating ladders:~p~n", [?SERVER, Ladders]),
     start_ladders(Ladders, [], WorkersPerLadder).
 
 workers_per_ladder(_Workers, 0) ->
@@ -224,11 +224,11 @@ start_ladders([Ladder|Rest], OnlineLadders, WorkersPerLadder) ->
     start_ladders(Rest, OnlineLadders, WorkersPerLadder).
 
 start_ladder(Ladder, WorkersPerLadder) ->
-    lager:info("Starting ladder_update for ~p~n", [Ladder]),
+    lager:info("[~p] Starting ladder_update for ~p~n", [?SERVER, Ladder]),
     case pladder_update_sup:start_ladder_update(Ladder, WorkersPerLadder) of
         {error, Reason} ->
-            lager:error("Unable to start ladder_update for ~p "
-                        "with reason:~p~n", [Ladder, Reason]),
+            lager:error("[~p] Unable to start ladder_update for ~p "
+                        "with reason:~p~n", [?SERVER, Ladder, Reason]),
             pladder_ladder_update:set_workers(Ladder, WorkersPerLadder);
         _ ->
             ok
@@ -246,11 +246,11 @@ stop_ladders([Ladder|Rest], OnlineLadders) ->
     stop_ladders(Rest, OnlineLadders).
 
 stop_ladder(Ladder) ->
-    lager:info("Stopping ladder_update for ~p~n", [Ladder]),
+    lager:info("[~p] Stopping ladder_update for ~p~n", [?SERVER, Ladder]),
     case pladder_update_sup:stop_ladder_update(Ladder) of
         {error, Reason} ->
-            lager:error("Unable to stop ladder_update for ~p "
-                        "with reason:~p~n", [Ladder, Reason]);
+            lager:error("[~p] Unable to stop ladder_update for ~p "
+                        "with reason:~p~n", [?SERVER, Ladder, Reason]);
         _ ->
             ok
     end.
@@ -277,8 +277,8 @@ clean_ladder(Ladder) ->
             Characters)
     catch
         _:Exception  ->
-            lager:error("Exception caught while cleaning ~p exception:~p~n",
-                        [Ladder, Exception])
+            lager:error("[~p] Exception caught while cleaning ~p exception:~p~n",
+                        [?SERVER, Ladder, Exception])
     end.
 
 get_update_ladders() ->
