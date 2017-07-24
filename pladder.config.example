@@ -1,0 +1,73 @@
+[
+    {sumo_db, [
+        {wpool_opts, [{overrun_warning, infinity}]},
+        {log_queries, false},
+        {verbose, true},
+        {query_timeout, 30000},
+
+        {storage_backends, [
+            {pladder_backend, sumo_backend_mysql, [
+                {username, ""},
+                {password, ""},
+                {host, ""},
+                {port, 3306},
+                {database, ""},
+                {poolsize, 10}
+            ]}
+        ]},
+
+        {stores, [
+            {pladder_store, sumo_store_mysql, [
+                {storage_backend, pladder_backend},
+                {workers, 10}
+            ]}
+        ]},
+
+        {docs, [
+            {ladders, pladder_store, #{module => pladder_ladders}},
+            {characters, pladder_store, #{module => pladder_characters}},
+            {accounts, pladder_store, #{module => pladder_accounts}},
+            {experiences, pladder_store, #{module => pladder_experiences}}
+        ]},
+
+        {events, [
+            {ladders, pladder_sumo_event_manager},
+            {characters, pladder_sumo_event_manager},
+            {accounts, pladder_sumo_event_manager},
+            {experiences, pladder_sumo_event_manager}
+        ]}
+    ]},
+
+    {sasl, [{sasl_error_logger, false}]},
+    {pladder, [
+        {http_port, 8223},
+        {http_listener_count, 10},
+        {wpool_opts, [{overrun_warning, infinity}]},
+        {workers, 10}
+    ]},
+    {lager, [
+        {colored, true},
+        {async_threshold, 200},
+        {async_threshold_window, 5},
+        {error_logger_hwm, 500},
+        {handlers, [
+            {lager_console_backend, [{level, info}]},
+            {lager_file_backend, [{file, "log/error.log"},
+                                  {level, error}]},
+            {lager_file_backend, [{file, "log/console.log"},
+                                  {level, info}]}]}]},
+    {cowboy_swagger,
+     [
+         {static_files, "_build/default/lib/cowboy_swagger/priv/swagger"},
+         {global_spec,
+          #{swagger => "2.0",
+            info => #{title => "Pladder REST API"},
+            basePath => ""
+          }
+         }
+     ]
+    },
+    {emysql, [
+        {default_timeout, 20000}
+    ]}
+].

@@ -18,3 +18,5 @@ rebar3.crashdump
 *.iml
 rebar.lock
 *Mnesia*
+pladder.config
+*.txt

@@ -11,11 +11,8 @@
 
 %% API
 -export([start_link/0,
-         get_by_char_name/1,
-         get_by_acc_name/1,
-         get_by_char_class/1,
-         get_stats/0,
-         update_entry_online_status/0]).
+         check_on_ladders/0,
+         clean_ladders/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -25,23 +22,18 @@
          terminate/2,
          code_change/3]).
 
+-export([clean_ladder/1,
+         get_update_ladders/0]).
+
 -define(SERVER, ?MODULE).
 
 -include("pladder.hrl").
 
 -record(state, {
-    rest_pid :: pid(),
-    ladder :: string(),
-    offset :: integer(),
-    stream_ref :: reference(),
-    temp_data = <<>> :: binary()
+    check_on_ladders_timer :: timer:tref(),
+    clean_ladders_timer :: timer:tref(),
+    workers :: integer()
 }).
-
--define(RestURL, "api.pathofexile.com").
--define(Ladders, "/ladders").
--define(RestPort, 80).
--define(Limit, 200).
--define(StartUpdateTimer, 60000).
 
 %%%===================================================================
 %%% API
@@ -58,53 +50,13 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-get_by_char_name(CharacterName) ->
-    CharacterNameLowerCase = string:to_lower(CharacterName),
-    F = fun() ->
-        mnesia:index_read(ladder_entry, CharacterNameLowerCase,
-                          #ladder_entry.character_name_lower_case)
-        end,
-    mnesia:transaction(F).
+-spec check_on_ladders() -> ok.
+check_on_ladders() ->
+    gen_server:cast(?MODULE, {check_on_ladders}).
 
-get_by_acc_name(AccountName) ->
-    AccountNameLowerCase = string:to_lower(AccountName),
-    F = fun() ->
-        mnesia:index_read(ladder_entry, AccountNameLowerCase,
-                          #ladder_entry.account_name_lower_case)
-        end,
-    mnesia:transaction(F).
-
-get_by_char_class(ClassName) ->
-    F = fun() ->
-        mnesia:index_read(ladder_entry, ClassName,
-                          #ladder_entry.character_class)
-        end,
-    mnesia:transaction(F).
-
-get_stats() ->
-    F = fun() ->
-        mnesia:foldl(
-            fun(#ladder_entry{dead=IsDead, online=IsOnline},
-                #ladder_stats{dead=Dead, alive=Alive, online=Online}) ->
-                case {IsDead, IsOnline} of
-                    {true, true} ->
-                        #ladder_stats{dead=Dead+1, alive=Alive,
-                                      online=Online+1};
-                    {true, false} ->
-                        #ladder_stats{dead=Dead+1, alive=Alive,
-                                      online=Online};
-                    {false, true} ->
-                        #ladder_stats{dead=Dead, alive=Alive+1,
-                                      online=Online+1};
-                    {false, false} ->
-                        #ladder_stats{dead=Dead, alive=Alive+1,
-                                      online=Online}
-                end
-            end,
-            #ladder_stats{},
-            ladder_entry)
-        end,
-    mnesia:transaction(F).
+-spec clean_ladders() -> ok.
+clean_ladders() ->
+    gen_server:cast(?MODULE, {clean_ladders}).
 
 
 %%%===================================================================
@@ -126,45 +78,16 @@ get_stats() ->
     {ok, State :: #state{}} | {ok, State :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
 init([]) ->
-    application:ensure_all_started(gun),
-    mnesia:create_schema([node()]),
-    mnesia:start(),
-    case mnesia:create_table(ladder_entry,
-                             [{attributes,
-                               record_info(fields, ladder_entry)},
-                              {disc_copies, [node()]},
-                              {index, [character_name_lower_case,
-                                       account_name_lower_case,
-                                       rank, character_class]}]) of
-        {aborted, {already_exists, ladder_entry}} ->
-            update_entry_online_status(),
-            timer:send_after(1200 * 1000, {update_online_status}),
-            {ok, RestPid} = gun:open(?RestURL, ?RestPort, #{protocols=>[http]}),
-            Offset = 0,
-            Ladder = "2 Week Mayhem HC Solo (JRE093)",
-            Path = build_path(Ladder, ?Limit, Offset),
-            io:format("path:~p~n", [Path]),
-            io:format("pids self:~p rest:~p~n", [self(), RestPid]),
-            StreamRef = gun:get(RestPid, Path),
-            {ok, #state{rest_pid=RestPid, offset=Offset, ladder=Ladder,
-                        stream_ref=StreamRef}};
-        {aborted, Reason} ->
-            io:format("Mnesia table failed to create with reason:~p~n",
-                      [Reason]),
-            {stop, Reason};
-        _ ->
-            update_entry_online_status(),
-            timer:send_after(1200 * 1000, {update_online_status}),
-            {ok, RestPid} = gun:open(?RestURL, ?RestPort, #{protocols=>[http]}),
-            Offset = 0,
-            Ladder = "2 Week Mayhem HC Solo (JRE093)",
-            Path = build_path(Ladder, ?Limit, Offset),
-            io:format("path:~p~n", [Path]),
-            io:format("pids self:~p rest:~p~n", [self(), RestPid]),
-            StreamRef = gun:get(RestPid, Path),
-            {ok, #state{rest_pid=RestPid, offset=Offset, ladder=Ladder,
-                        stream_ref=StreamRef}}
-    end.
+    Workers = application:get_env(pladder, workers, 100),
+    init_ladders(Workers),
+    {ok, CheckOnLaddersTref} =timer:apply_interval(?CheckOnLaddersTimer,
+                                                   ?MODULE,
+                                                   check_on_ladders, []),
+    {ok, CleanLaddersTref} = timer:apply_interval(?CleanLaddersTimer, ?MODULE,
+                                                  clean_ladders, []),
+    {ok, #state{check_on_ladders_timer=CheckOnLaddersTref,
+                clean_ladders_timer=CleanLaddersTref,
+                workers=Workers}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -197,6 +120,25 @@ handle_call(_Request, _From, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
+handle_cast({check_on_ladders}, #state{workers=Workers}=State) ->
+    DBLadders = sumo:find_by(ladders, []),
+    F = fun(#{active := Active}) -> Active end,
+    {ActiveDBLadders, InactiveDBLadders} = lists:splitwith(F, DBLadders),
+    ActiveLadders = [ sumo_utils:to_list(Ladder) ||
+        #{id := Ladder} <- ActiveDBLadders],
+    InactiveLadders = [ sumo_utils:to_list(Ladder) ||
+        #{id := Ladder} <- InactiveDBLadders],
+    Ladders = get_update_ladders(),
+    stop_ladders(InactiveLadders, Ladders),
+    WorkersPerLadder = workers_per_ladder(Workers, length(ActiveLadders)),
+    start_ladders(ActiveLadders, Ladders, WorkersPerLadder),
+    {noreply, State};
+
+handle_cast({clean_ladders}, State) ->
+    Ladders = get_update_ladders(),
+    clean_ladders(Ladders),
+    {noreply, State};
+
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -214,111 +156,6 @@ handle_cast(_Request, State) ->
     {noreply, NewState :: #state{}} |
     {noreply, NewState :: #state{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #state{}}).
-
-handle_info({gun_up, RestPid, _Protocol},
-            #state{rest_pid=RestPid}=State) ->
-    io:format("Rest up~n", []),
-    {noreply, State};
-handle_info({gun_up, _ConnPid, _Protocol}, State)  ->
-    io:format("test~n", []),
-    {noreply, State};
-
-handle_info({gun_down, RestPid, _Protocol, _Reason,
-             _KilledStream, _UnProcessedStreams},
-            #state{rest_pid=RestPid}=State) ->
-    io:format("Rest down:~n", []),
-    {noreply, State};
-handle_info({gun_down, _ConnPid, _Protocol, _Reason,
-             _KilledStreams, _UnProcessedStreams}=_Msg, State) ->
-    io:format("test~n", []),
-    {noreply, State};
-
-handle_info({gun_response, RestPid, _StreamRef, nofin, 200, _Headers},
-            #state{rest_pid=RestPid}=State) ->
-    {noreply, State};
-handle_info({gun_response, RestPid, _StreamRef, nofin, Status, Headers},
-            #state{rest_pid=RestPid}=State) ->
-    io:format("Received no end response with status(~p) and headers:~p~n",
-              [Status, Headers]),
-    {noreply, State};
-handle_info({gun_response, RestPid, _StreamRef, fin, 200, _Headers},
-            #state{rest_pid=RestPid}=State) ->
-    {noreply, State};
-handle_info({gun_response, RestPid, _StreamRef, fin, Status, Headers},
-            #state{rest_pid=RestPid}=State) ->
-    io:format("Received end response with status(~p) and headers:~p~n",
-              [Status, Headers]),
-    {noreply, State};
-handle_info({gun_response, ConnPid, _StreamRef,
-             IsFin, Status, Headers}=_Msg,
-            #state{}=State) ->
-    io:format("Unhandled gun_response recieved for pid:~p finish state:~p "
-              "and status(~p) and headers:~n~p~n",
-              [ConnPid, IsFin, Status, Headers]),
-    {noreply, State};
-
-handle_info({gun_data, RestPid, StreamRef, nofin, Data},
-            #state{rest_pid=RestPid, stream_ref=StreamRef,
-                   temp_data=TempData}=State) ->
-    %%io:format("Received data:~p~n", [Data]),
-    UpdatedTempData = <<TempData/binary, Data/binary>>,
-    {noreply, State#state{temp_data=UpdatedTempData}};
-handle_info({gun_data, RestPid, StreamRef, fin, Data},
-            #state{rest_pid=RestPid, stream_ref=StreamRef,
-                temp_data=TempData, offset=Offset, ladder=Ladder}=State) ->
-    UpdatedTempData = <<TempData/binary, Data/binary>>,
-    NewTempData = <<>>,
-    try
-        DecodedData = jiffy:decode(UpdatedTempData, [return_maps]),
-        Total = update_ladder(DecodedData),
-        NewOffset = update_offset(Offset, Total),
-        if
-            NewOffset == 0 ->
-                timer:send_after(?StartUpdateTimer, {start_update}),
-                {noreply, State#state{offset=NewOffset, stream_ref=undefined,
-                                      temp_data=NewTempData}};
-            true ->
-                Path = build_path(Ladder, ?Limit, NewOffset),
-                lager:info("Get ~p~n", [Path]),
-                NewStreamRef = gun:get(RestPid, Path),
-                {noreply, State#state{offset=NewOffset, stream_ref=NewStreamRef,
-                                      temp_data=NewTempData}}
-        end
-    catch %% Most likely POE servers are down
-        _:_  ->
-            io:format("Json data was undecodable, retrying later", []),
-            timer:send_after(?StartUpdateTimer, {start_update}),
-            {noreply, State#state{offset=0, stream_ref=undefined,
-                                  temp_data=NewTempData}}
-    end;
-
-handle_info({gun_data, ConnPid, _StreamRef, IsFin, Data}=_Msg, State) ->
-    io:format("Unhandled gun_data recieved for pid:~p finish state:~p "
-              "and data:~n~p~n", [ConnPid, IsFin, Data]),
-    {noreply, State};
-
-handle_info({gun_error, RestPid, StreamRef, {closed, Reason}},
-            #state{rest_pid=RestPid, stream_ref=StreamRef,
-                   offset=Offset}=State) ->
-    io:format("Connection closed for streamref:~p with reason:~p~n",
-              [StreamRef, Reason]),
-    NewTempData = <<>>,
-    timer:send_after(?StartUpdateTimer, {start_update}),
-    {noreply, State#state{offset=Offset, stream_ref=undefined,
-                          temp_data=NewTempData}};
-
-handle_info({start_update}, #state{ladder=Ladder, offset=Offset,
-                                   rest_pid=RestPid}=State) ->
-    Path = build_path(Ladder, ?Limit, Offset),
-    StreamRef = gun:get(RestPid, Path),
-    TempData = <<>>,
-    {noreply, State#state{stream_ref=StreamRef, temp_data=TempData}};
-
-handle_info({update_online_status}, State) ->
-    update_entry_online_status(),
-    timer:send_after(1200 * 1000, {update_online_status}),
-    {noreply, State};
-
 handle_info(Info, State) ->
     io:format("Unhandled info msg received:~p~n", [Info]),
     {noreply, State}.
@@ -336,7 +173,13 @@ handle_info(Info, State) ->
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
                 State :: #state{}) -> term()).
-terminate(_Reason, _State) ->
+terminate(Reason, #state{check_on_ladders_timer=CheckOnLaddersTimer,
+                          clean_ladders_timer=CleanLaddersTimer}) ->
+    lager:warning("Shuting down ~p with reason:~p~n", [?SERVER, Reason]),
+    Ladders = get_update_ladders(),
+    stop_ladders(Ladders, Ladders),
+    timer:cancel(CheckOnLaddersTimer),
+    timer:cancel(CleanLaddersTimer),
     ok.
 
 %%--------------------------------------------------------------------
@@ -356,125 +199,95 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-build_path(Ladder, Limit, Offset) ->
-    EncodedLadder = http_uri:encode(Ladder),
-    lists:concat([?Ladders, "/", EncodedLadder, "?", "limit=", Limit,
-                  "&", "offset=", Offset, "&track=true"]).
-update_ladder(#{<<"total">> := Total, <<"entries">> := Entries}) ->
-    update_entry(Entries),
-    Total;
-update_ladder(LadderEntries) ->
-    io:format("~p~n", [LadderEntries]),
-    ok.
+init_ladders(Workers) ->
+    ActiveLadders = sumo:find_by(ladders, [{active, 1}]),
+    Ladders = [ sumo_utils:to_list(Id) || #{id := Id} <- ActiveLadders],
+    WorkersPerLadder = workers_per_ladder(Workers, length(Ladders)),
+    lager:info("Initating ladders:~p~n", [Ladders]),
+    start_ladders(Ladders, [], WorkersPerLadder).
 
-update_entry([]) ->
+workers_per_ladder(_Workers, 0) ->
+    0;
+workers_per_ladder(Workers, Ladders) ->
+    trunc(Workers / Ladders).
+
+start_ladders([], _OnlineLadders, _WorkersPerLadder) ->
     ok;
-update_entry([#{<<"rank">> := Rank, <<"dead">> := Dead, <<"online">> := Online,
-                <<"character">> := #{<<"name">> := CharacterName,
-                                     <<"id">> := Id,
-                                     <<"level">> := CharacterLevel,
-                                     <<"experience">> := CharacterExp,
-                                     <<"class">> := CharacterClass},
-                <<"account">> := #{<<"name">> := AccountName}=AccountInfo}
-                 |Rest]) ->
-    TwitchName =
-    case AccountInfo of
-        #{<<"twitch">> := #{<<"name">> := AccountTwitchName}} ->
-            bitstring_to_list(AccountTwitchName);
-        _ ->
-            ""
-    end,
-    Now = calendar:local_time(),
-    LadderEntry =
-    #ladder_entry{
-        id=bitstring_to_list(Id),
-        rank=Rank,
-        dead=Dead,
-        online=Online,
-        character_class=bitstring_to_list(CharacterClass),
-        character_exp=CharacterExp,
-        character_level=CharacterLevel,
-        character_name=bitstring_to_list(CharacterName),
-        character_name_lower_case=string:to_lower(
-            bitstring_to_list(CharacterName)),
-        account_name=bitstring_to_list(AccountName),
-        account_name_lower_case=string:to_lower(bitstring_to_list(AccountName)),
-        twitch_name=TwitchName,
-        last_update=Now
-    },
-    ExpPerHour =
-    case get_old_entry(LadderEntry, Dead) of
-        {atomic, []} ->
-            "0 XPH";
-        {atomic, [#ladder_entry{last_update=LastUpdate,
-                                character_exp=OldCharacterExp}]} ->
-            NowSeconds = calendar:datetime_to_gregorian_seconds(Now),
-            LastUpdateSeconds =
-            calendar:datetime_to_gregorian_seconds(LastUpdate),
-            UpdatedDiffSeconds = NowSeconds - LastUpdateSeconds,
-            ExpDiff = CharacterExp - OldCharacterExp,
-            NewExpPerHour = trunc(ExpDiff * (3600 / UpdatedDiffSeconds)),
-            round_exp(NewExpPerHour);
-        _ ->
-            "0 XPH"
-    end,
-    F = fun() ->
-        mnesia:write(LadderEntry#ladder_entry{exp_per_hour=ExpPerHour})
-        end,
-    case mnesia:transaction(F) of
-        {aborted, Reason} ->
-            io:format("Transaction aborted with reason:~p~n",[Reason]);
-        {atomic, _} ->
+start_ladders([Ladder|Rest], OnlineLadders, WorkersPerLadder) ->
+    case lists:member(Ladder, OnlineLadders) of
+        false ->
+            start_ladder(Ladder, WorkersPerLadder);
+        true ->
+            pladder_ladder_update:set_workers(Ladder, WorkersPerLadder),
             ok
     end,
-    update_entry(Rest).
+    start_ladders(Rest, OnlineLadders, WorkersPerLadder).
 
-update_offset(Offset, Total) ->
-    if
-        (Offset + ?Limit) >= Total ->
-            0;
-        true ->
-            Offset + ?Limit
+start_ladder(Ladder, WorkersPerLadder) ->
+    lager:info("Starting ladder_update for ~p~n", [Ladder]),
+    case pladder_update_sup:start_ladder_update(Ladder, WorkersPerLadder) of
+        {error, Reason} ->
+            lager:error("Unable to start ladder_update for ~p "
+                        "with reason:~p~n", [Ladder, Reason]),
+            pladder_ladder_update:set_workers(Ladder, WorkersPerLadder);
+        _ ->
+            ok
     end.
 
-get_old_entry(_Entry, true) ->
-    [];
-get_old_entry(Entry, false) ->
-    get_entry(Entry).
-
-get_entry(#ladder_entry{id=Id}) ->
-    F = fun() ->
-        mnesia:read({ladder_entry, Id})
-        end,
-    mnesia:transaction(F).
-
-round_exp(ExpPerHour) ->
-    if
-        ExpPerHour < 1000000 ->
-            lists:concat([trunc(ExpPerHour / 1000), "K XPH"]);
+stop_ladders([], _OnlineLadders) ->
+    ok;
+stop_ladders([Ladder|Rest], OnlineLadders) ->
+    case lists:member(Ladder, OnlineLadders) of
+        false ->
+            ok;
         true ->
-            lists:concat([trunc(ExpPerHour / 1000000), "M XPH"])
+            stop_ladder(Ladder)
+    end,
+    stop_ladders(Rest, OnlineLadders).
+
+stop_ladder(Ladder) ->
+    lager:info("Stopping ladder_update for ~p~n", [Ladder]),
+    case pladder_update_sup:stop_ladder_update(Ladder) of
+        {error, Reason} ->
+            lager:error("Unable to stop ladder_update for ~p "
+                        "with reason:~p~n", [Ladder, Reason]);
+        _ ->
+            ok
     end.
 
-update_entry_online_status() ->
-    F = fun() ->
-        mnesia:foldl(
-            fun(#ladder_entry{online=true, last_update=LastUpdate}=LadderEntry,
-                ignore) ->
-                Now = calendar:local_time(),
-                NowSeconds = calendar:datetime_to_gregorian_seconds(Now),
-                LastUpdateSeconds =
-                calendar:datetime_to_gregorian_seconds(LastUpdate),
-                UpdatedDiffSeconds = NowSeconds - LastUpdateSeconds,
-                if
-                    UpdatedDiffSeconds > 600 ->
-                        mnesia:write(LadderEntry#ladder_entry{online=false});
-                    true ->
-                        ok
-                end,
-                ignore
+clean_ladders([]) ->
+    ok;
+clean_ladders([Ladder|Rest]) ->
+    clean_ladder(Ladder),
+    clean_ladders(Rest).
+
+clean_ladder(Ladder) ->
+    Now = calendar:datetime_to_gregorian_seconds(
+        calendar:now_to_datetime(erlang:timestamp())),
+    OldDate = calendar:gregorian_seconds_to_datetime(Now - (3600*2)),
+    try
+        Conditions = {'and', [{ladder, Ladder}, {rank, '<', 15001},
+                              {last_updated, '<', OldDate}]},
+        Total = sumo:count_by(characters, {ladder, Ladder}),
+        Characters = sumo:find_by(characters, Conditions),
+        lists:foreach(
+            fun(Character) ->
+                sumo:persist(characters, Character#{rank => Total + 1})
             end,
-            ignore,
-            ladder_entry)
-        end,
-    mnesia:transaction(F).
+            Characters)
+    catch
+        _:Exception  ->
+            lager:error("Exception caught while cleaning ~p exception:~p~n",
+                        [Ladder, Exception])
+    end.
+
+get_update_ladders() ->
+    OnlineLadders = supervisor:which_children(pladder_update_sup),
+    F =
+    fun({pladder_worker_pool, _, _, _}, Ladders) ->
+        Ladders;
+       ({L, _, _, _}, Ladders) ->
+           "pladder_ladder_update_" ++ Ladder = atom_to_list(L),
+           Ladders ++ [Ladder]
+    end,
+    lists:foldl(F, [], OnlineLadders).

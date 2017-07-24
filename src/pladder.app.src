@@ -1,19 +1,26 @@
 {application, pladder,
- [{description, "An OTP application"},
+ [{description, "POE Ladder Microservice"},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, { pladder_app, []}},
+  {mod, {pladder_app, []}},
   {applications,
    [kernel,
     stdlib,
-    mnesia,
+    sasl,
     gun,
-    lager
+    lager,
+    emysql,
+    sumo_rest,
+    trails,
+    cowboy,
+    cowboy_swagger,
+    sumo_db,
+    sumo_db_mysql
    ]},
   {env,[]},
   {modules, []},
-
   {maintainers, []},
   {licenses, ["Apache 2.0"]},
-  {links, []}
+  {links, []},
+  {start_phases, [{start_cowboy_listeners, []}]}
  ]}.

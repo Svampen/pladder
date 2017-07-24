@@ -22,13 +22,31 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
+
+
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
 
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    {ok, { {one_for_all, 0, 1}, []} }.
+    PladderUpdateSup =
+    #{
+        id => pladder_update_sup,
+        start => {pladder_update_sup, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => supervisor
+    },
+    Pladder =
+    #{
+        id => pladder,
+        start => {pladder, start_link, []},
+        restart => permanent,
+        shutdown => 2000
+
+    },
+    {ok, {{one_for_one, 10, 3600}, [PladderUpdateSup, Pladder]}}.
 
 %%====================================================================
 %% Internal functions
