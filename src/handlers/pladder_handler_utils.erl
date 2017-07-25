@@ -168,6 +168,21 @@ qs_fields([{character_id, Value}|Rest], ValidConditions) ->
                             reason => Error,
                             action => return_no_results}})
     end;
+qs_fields([{classes, Classes}|Rest], ValidConditions) ->
+    try
+        ClassesList = string:tokens(sumo_utils:to_list(Classes), ","),
+        ClassesRule = [{class, sumo_utils:to_bin(Class)} || Class <- ClassesList],
+        qs_fields(Rest, ValidConditions ++ [{'or', ClassesRule}])
+    catch
+        _:Exception ->
+            lager:error("[~p] Exception in qs_fields for classes: ~p~n",
+                        [?MODULE, Exception]),
+            Error = <<"Tokenizing error with "
+                      "bitstring in qs_fields for classes">>,
+            throw({error, #{type => no_results,
+                            reason => Error,
+                            action => return_no_results}})
+    end;
 qs_fields([_|Rest], ValidConditions) ->
     qs_fields(Rest, ValidConditions).
 

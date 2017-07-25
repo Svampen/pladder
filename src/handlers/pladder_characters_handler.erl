@@ -87,6 +87,14 @@ trails() ->
         required => false,
         type => string
     },
+    Classes =
+    #{
+        name => <<"classes">>,
+        in => query,
+        description => <<"Find character(s) based on classes">>,
+        required => false,
+        type => string
+    },
     Ladder =
     #{
         name => <<"ladder">>,
@@ -119,7 +127,7 @@ trails() ->
             description => "Returns characters",
             consumes => ["application/json"],
             produces => ["application/json"],
-            parameters => [Account, Name, Ladder, Class, Sort,
+            parameters => [Account, Name, Ladder, Class, Classes, Sort,
                            SortOrder, PageSize, Page, Filter]
         }
     },
